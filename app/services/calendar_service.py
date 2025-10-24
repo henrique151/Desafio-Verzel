@@ -32,13 +32,11 @@ def oferecer_horarios() -> str:
         return json.dumps({"slots": ["2025-10-25T10:00:00", "2025-10-25T14:00:00"]})
 
 
-def agendar_reuniao(slot_iso_str: str, lead_data_json: str) -> str:
+def agendar_reuniao(slot_iso_str: str, card_id: str) -> str:
     if USE_SIMULATION:
         meeting_id = str(uuid.uuid4())
         meeting_link = f"https://meet.link.ficticio/{meeting_id}"
         from .pipefy_service import atualizar_card_com_reuniao
-        lead_data = json.loads(lead_data_json)
-        card_id = lead_data.get("card_id")
         datetime_iso = datetime.fromisoformat(slot_iso_str).isoformat()
         atualizar_card_com_reuniao(card_id, meeting_link, datetime_iso)
         return f"Reunião agendada (simulação) em {slot_iso_str}. Link: {meeting_link}"

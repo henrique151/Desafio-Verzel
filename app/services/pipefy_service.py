@@ -97,7 +97,7 @@ def _get_field_ids():
     return _field_id_cache
 
 
-def registrar_lead(nome: str, email: str, empresa: str, necessidade: str) -> str:
+def registrar_lead(nome: str, email: str, empresa: str, necessidade: str, datetime_str: str = None, link_reuniao: str = None) -> str:
     """Cria um novo card (lead) no Pipefy."""
     if SIMULATION_MODE:
         simulated_card_id = "SIM_CARD_12345"
@@ -132,6 +132,14 @@ def registrar_lead(nome: str, email: str, empresa: str, necessidade: str) -> str
         {"field_id": field_ids["interesse"], "field_value": "Sim"},
     ]
 
+    if link_reuniao:
+        fields.append(
+            {"field_id": field_ids["link_reuniao"], "field_value": link_reuniao})
+
+    if datetime_str:
+        fields.append(
+            {"field_id": field_ids["data_reuniao"], "field_value": datetime_str})
+
     # Mutation GraphQL
     mutation = """
     mutation CreateCard($input: CreateCardInput!) {
@@ -159,7 +167,10 @@ def registrar_lead(nome: str, email: str, empresa: str, necessidade: str) -> str
 
 
 def atualizar_card_com_reuniao(card_id: str, link: str, datetime_str: str) -> str:
+    print(
+        f"[DEBUG] Iniciando atualização do card {card_id} com link: {link} e data: {datetime_str}")
     if SIMULATION_MODE:
+        print("[DEBUG] Modo de simulação ativo. Nenhuma chamada real ao Pipefy.")
         return json.dumps({
             "status": "sucesso",
             "card_id": card_id,
@@ -168,29 +179,49 @@ def atualizar_card_com_reuniao(card_id: str, link: str, datetime_str: str) -> st
 
     try:
         field_ids = _get_field_ids()
+        print(f"[DEBUG] IDs dos campos obtidos: {field_ids}")
     except Exception as e:
+        print(f"[ERROR] Erro ao obter IDs dos campos: {e}")
         return str(e)
 
-    def atualizar_campo(field_id, value):
-        mutation = """
+    # Validação para garantir que os campos necessários existem
+    if "link_reuniao" not in field_ids or "data_reuniao" not in field_ids:
+        print(
+            "[ERROR] Os campos 'link_reuniao' ou 'data_reuniao' não foram encontrados no Pipefy.")
+        return "Erro: Campos para link ou data da reunião não encontrados no Pipefy. Verifique os nomes dos campos no Start Form."
+
+    def atualizar_campo(field_id, field_name, value):
+        print(
+            f"[DEBUG] Atualizando campo '{field_name}' (ID: {field_id}) com o valor: {value}")
+        mutation = '''
         mutation UpdateCardField($input: UpdateCardFieldInput!) {
             updateCardField(input: $input) {
                 card { id }
                 success
             }
         }
-        """
+        '''
         variables = {"input": {"card_id": card_id,
                                "field_id": field_id, "new_value": value}}
         return _executar_query(mutation, variables)
 
     # Atualiza link da reunião
-    res_link = atualizar_campo(field_ids["link_reuniao"], link)
+    res_link = atualizar_campo(field_ids["link_reuniao"], "link_reuniao", link)
     # Atualiza data da reunião
-    res_data = atualizar_campo(field_ids["data_reuniao"], datetime_str)
+    res_data = atualizar_campo(
+        field_ids["data_reuniao"], "data_reuniao", datetime_str)
 
-    if res_link.get("data") and res_link["data"].get("updateCardField") and \
-       res_data.get("data") and res_data["data"].get("updateCardField"):
+    print(f"[DEBUG] Resposta da atualização do link: {json.dumps(res_link)}")
+    print(f"[DEBUG] Resposta da atualização da data: {json.dumps(res_data)}")
+
+    success_link = res_link.get("data") and res_link.get(
+        "data", {}).get("updateCardField", {}).get("success")
+    success_data = res_data.get("data") and res_data.get(
+        "data", {}).get("updateCardField", {}).get("success")
+
+    if success_link and success_data:
+        print(f"[INFO] Card {card_id} atualizado com sucesso.")
         return f"Card {card_id} atualizado com link e data da reunião."
     else:
+        print(f"[ERROR] Falha ao atualizar o card {card_id}.")
         return f"Falha ao atualizar card {card_id}. Detalhes: link={json.dumps(res_link)}, data={json.dumps(res_data)}"
