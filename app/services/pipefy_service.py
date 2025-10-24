@@ -159,7 +159,6 @@ def registrar_lead(nome: str, email: str, empresa: str, necessidade: str) -> str
 
 
 def atualizar_card_com_reuniao(card_id: str, link: str, datetime_str: str) -> str:
-    """Atualiza card com link e data da reunião."""
     if SIMULATION_MODE:
         return json.dumps({
             "status": "sucesso",
@@ -172,21 +171,26 @@ def atualizar_card_com_reuniao(card_id: str, link: str, datetime_str: str) -> st
     except Exception as e:
         return str(e)
 
-    mutation = """
-    mutation UpdateCardField($cardId: ID!, $fields: [UpdateFieldInput!]!) {
-      updateCard(input: {id: $cardId, fields_attributes: $fields}) {
-        card { id }
-      }
-    }
-    """
-    fields = [
-        {"field_id": field_ids["link_reuniao"], "field_value": link},
-        {"field_id": field_ids["data_reuniao"], "field_value": datetime_str},
-    ]
-    variables = {"cardId": card_id, "fields": fields}
-    result = _executar_query(mutation, variables)
+    def atualizar_campo(field_id, value):
+        mutation = """
+        mutation UpdateCardField($input: UpdateCardFieldInput!) {
+            updateCardField(input: $input) {
+                card { id }
+                success
+            }
+        }
+        """
+        variables = {"input": {"card_id": card_id,
+                               "field_id": field_id, "new_value": value}}
+        return _executar_query(mutation, variables)
 
-    if result.get("data") and result["data"].get("updateCard"):
+    # Atualiza link da reunião
+    res_link = atualizar_campo(field_ids["link_reuniao"], link)
+    # Atualiza data da reunião
+    res_data = atualizar_campo(field_ids["data_reuniao"], datetime_str)
+
+    if res_link.get("data") and res_link["data"].get("updateCardField") and \
+       res_data.get("data") and res_data["data"].get("updateCardField"):
         return f"Card {card_id} atualizado com link e data da reunião."
     else:
-        return f"Falha ao atualizar card {card_id}. Detalhes: {json.dumps(result)}"
+        return f"Falha ao atualizar card {card_id}. Detalhes: link={json.dumps(res_link)}, data={json.dumps(res_data)}"
