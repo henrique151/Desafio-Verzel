@@ -2,6 +2,7 @@ import os
 import requests
 import json
 from dotenv import load_dotenv
+from app.utils.date_utils import normalizar_data
 
 load_dotenv()
 
@@ -113,6 +114,12 @@ def registrar_lead(nome: str, email: str, empresa: str, necessidade: str, dateti
     except Exception as e:
         return str(e)
 
+    if datetime_str:
+        try:
+            datetime_str = normalizar_data(datetime_str)
+        except Exception as e:
+            print(f"[WARNING] Não foi possível normalizar a data: {e}")
+
     # Validação do campo 'Necessidade' (select do Pipefy)
     necessidade_map = {
         "implementar ia": "Implementar IA",
@@ -169,6 +176,7 @@ def registrar_lead(nome: str, email: str, empresa: str, necessidade: str, dateti
 def atualizar_card_com_reuniao(card_id: str, link: str, datetime_str: str) -> str:
     print(
         f"[DEBUG] Iniciando atualização do card {card_id} com link: {link} e data: {datetime_str}")
+
     if SIMULATION_MODE:
         print("[DEBUG] Modo de simulação ativo. Nenhuma chamada real ao Pipefy.")
         return json.dumps({
@@ -184,44 +192,46 @@ def atualizar_card_com_reuniao(card_id: str, link: str, datetime_str: str) -> st
         print(f"[ERROR] Erro ao obter IDs dos campos: {e}")
         return str(e)
 
-    # Validação para garantir que os campos necessários existem
     if "link_reuniao" not in field_ids or "data_reuniao" not in field_ids:
         print(
-            "[ERROR] Os campos 'link_reuniao' ou 'data_reuniao' não foram encontrados no Pipefy.")
-        return "Erro: Campos para link ou data da reunião não encontrados no Pipefy. Verifique os nomes dos campos no Start Form."
+            "[ERROR] Campos 'link_reuniao' ou 'data_reuniao' não encontrados no Pipefy.")
+        return "Erro: Campos para link ou data da reunião não encontrados."
 
-    def atualizar_campo(field_id, field_name, value):
-        print(
-            f"[DEBUG] Atualizando campo '{field_name}' (ID: {field_id}) com o valor: {value}")
-        mutation = '''
-        mutation UpdateCardField($input: UpdateCardFieldInput!) {
-            updateCardField(input: $input) {
-                card { id }
-                success
-            }
+    # 🔹 Normaliza a data
+    try:
+        datetime_str = normalizar_data(datetime_str)
+    except Exception as e:
+        print(f"[WARNING] Falha ao normalizar data: {e}")
+
+    # ✅ Mutation corrigida
+    mutation = """
+    mutation UpdateCardFields($input: UpdateFieldsValuesInput!) {
+      updateFieldsValues(input: $input) {
+        success
+      }
+    }
+    """
+
+    variables = {
+        "input": {
+            "nodeId": card_id,
+            "values": [
+                {"fieldId": field_ids["link_reuniao"], "value": link},
+                {"fieldId": field_ids["data_reuniao"], "value": datetime_str}
+            ]
         }
-        '''
-        variables = {"input": {"card_id": card_id,
-                               "field_id": field_id, "new_value": value}}
-        return _executar_query(mutation, variables)
+    }
 
-    # Atualiza link da reunião
-    res_link = atualizar_campo(field_ids["link_reuniao"], "link_reuniao", link)
-    # Atualiza data da reunião
-    res_data = atualizar_campo(
-        field_ids["data_reuniao"], "data_reuniao", datetime_str)
+    result = _executar_query(mutation, variables)
+    print(f"[DEBUG] Resultado da atualização: {json.dumps(result, indent=2)}")
 
-    print(f"[DEBUG] Resposta da atualização do link: {json.dumps(res_link)}")
-    print(f"[DEBUG] Resposta da atualização da data: {json.dumps(res_data)}")
+    success = result.get("data", {}).get(
+        "updateFieldsValues", {}).get("success")
 
-    success_link = res_link.get("data") and res_link.get(
-        "data", {}).get("updateCardField", {}).get("success")
-    success_data = res_data.get("data") and res_data.get(
-        "data", {}).get("updateCardField", {}).get("success")
-
-    if success_link and success_data:
-        print(f"[INFO] Card {card_id} atualizado com sucesso.")
-        return f"Card {card_id} atualizado com link e data da reunião."
+    if success:
+        print(f"[INFO] Card {card_id} atualizado com sucesso no Pipefy.")
+        return f"Card {card_id} atualizado com sucesso com link e data da reunião."
     else:
-        print(f"[ERROR] Falha ao atualizar o card {card_id}.")
-        return f"Falha ao atualizar card {card_id}. Detalhes: link={json.dumps(res_link)}, data={json.dumps(res_data)}"
+        print(
+            f"[ERROR] Falha ao atualizar o card {card_id}. Detalhes: {result}")
+        return f"Falha ao atualizar card {card_id}. Detalhes: {json.dumps(result)}"
